@@ -165,19 +165,19 @@ function! s:flags()
 endfunction
 function! CsvHack#Unescape(is_func)
     if (a:is_func)
-        silent! %s/\v%(([{};])\s*)@>%(else)@!/\1\r
-        norm =ie
-        %g/^$/d
         for [l:from, l:to] in g:CsvHack#ScriptEscapeChars
             exec 'silent! %s/' . s:regex_escape(l:from) . '/' . l:to . '/' . s:flags()
         endfor
+        silent! %s/\v%(([{};])\s*)@>%(else)@!/\1\r
+        norm =ie
+        %g/^$/d
     else
         for [l:from, l:to] in g:CsvHack#TextEscapeChars
             exec 'silent! %s/' . s:regex_escape(l:from) . '/' . l:to . '/' . s:flags()
         endfor
     end
 endfunction
-let g:CsvHack#ScriptEscapeChars = [ ['~' , '"'], ['|' , ','], ['#' , '||']]
+let g:CsvHack#ScriptEscapeChars = [ ['[;]' , ','], ['~' , '"'], ['|' , ','], ['#' , '||']]
 let g:CsvHack#TextEscapeChars = [ ['[;]' , ','], ['|' , "\r"] ]
 function! s:is_column_function(buffer_id, regex)
     let l:line = getbufline(a:buffer_id, 1)[0]
