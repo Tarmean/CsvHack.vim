@@ -133,6 +133,7 @@ function! CsvHack#ExpandScript()
 
     let l:is_func = s:is_column_function(l:old_buf, l:pat)
     let l:callback = "call CsvHack#CompactScript(" . l:old_buf . ","  .  l:lnum . ",'" . l:pat . "', '" . b:seperator_char . "', ". l:is_func . ")"
+    let l:buf_name = expand("%:t")
     if (len(l:res))
         new
         set buftype=acwrite
@@ -146,7 +147,7 @@ function! CsvHack#ExpandScript()
 
         call CsvHack#Unescape(l:is_func)
         call CsvHack#ClearUndo()
-        file Row Entry
+        exec "file [" . l:buf_name . "]:" . l:lnum . ":" . (l:csv_col+1)
     endif
 endfunc
 function! s:flags()
