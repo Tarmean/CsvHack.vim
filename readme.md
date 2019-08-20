@@ -25,9 +25,14 @@ The default mappings are:
      let g:CsvHack#row_d_mapping = '<a-j>'
      let g:CsvHack#expand_mapping = '<space><space>'
      let g:CsvHack#quit_buffer_mapping = '<esc>'
+     let g:CsvHack#search_column_mapping = '/'
 
 Expanding a cell opens a buffer with the unescaped contents of the cell.
 Saving that buffer stores the escaped contents back into the cell.
+
+- col_l and col_r jump between columns
+- row_u and row_d scan up/down until the next non-empty entry in the current collumn
+- search_column_mapping searches in the current column
 
 ### Escaping:
 

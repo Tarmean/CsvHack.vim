@@ -7,6 +7,7 @@ if (!exists('g:CsvHack#row_u_mapping')) | let g:CsvHack#row_u_mapping = '<a-k>' 
 if (!exists('g:CsvHack#row_d_mapping')) | let g:CsvHack#row_d_mapping = '<a-j>' | endif
 if (!exists('g:CsvHack#expand_mapping')) | let g:CsvHack#expand_mapping = '<space><space>' | endif
 if (!exists('g:CsvHack#quit_buffer_mapping')) | let g:CsvHack#quit_buffer_mapping = '<esc>' | endif
+if (!exists('g:CsvHack#search_column_mapping')) | let g:CsvHack#search_column_mapping = '/' | endif
 
 command! CsvHackEnable call CsvHack#ActivateLocal(v:true, "")
 command! -bang CsvHackDisable call CsvHack#ActivateLocal(v:false, "<bang>")
@@ -64,6 +65,11 @@ function! CsvHack#SetupScrolllock()
     let l:main_win = win_getid()
     augroup Scrolllock
         au!
+        " we only want the header bar if the currently active windodw has is a
+        " cvs file.
+        " winleave disables the bar when switching windows, bufleave when changing the currently displayed file
+        " bufleave doesn't trigger when switching between windows with the
+        " same buffer
         exec "autocmd WinLeave,BufLeave <buffer> call CsvHack#CloseWin(" . l:scrolllock_win . ", ". l:main_win . ")"
         exec "autocmd User CsvHack_CloseScrollock call CsvHack#CloseWin(" . l:scrolllock_win . ", ". l:main_win . ")"
     augroup END
@@ -75,17 +81,15 @@ function! CsvHack#RemoveMappings()
     silent! exec 'unnoremap <buffer> '. g:CsvHack#row_d_mapping
     silent! exec 'unnoremap <buffer> '. g:CsvHack#row_u_mapping
     silent! exec 'unnoremap <buffer> '. g:CsvHack#expand_mapping
+    silent! exec 'unnoremap <buffer> '. g:CsvHack#search_column_mapping
 endfunc
 function! CsvHack#CreateMappings(sep_char)
     exec 'nnoremap <buffer> '.g:CsvHack#col_l_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:true)<cr>'
     exec 'nnoremap <buffer> '.g:CsvHack#col_r_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:false)<cr>'
-    exec 'nnoremap <buffer> '. g:CsvHack#row_d_mapping.' <c-f>'
-    exec 'nnoremap <buffer> '. g:CsvHack#row_u_mapping.' <c-b>'
+    exec 'nnoremap <buffer> '. g:CsvHack#row_d_mapping.' :call CsvHack#VertMovement(1)<cr>'
+    exec 'nnoremap <buffer> '. g:CsvHack#row_u_mapping.' :call CsvHack#VertMovement(-1)<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#expand_mapping.' :call CsvHack#ExpandScript()<cr>'
-endfunc
-function! CsvHack#JumpCol(sepchar, backwards)
-    let l:flags = a:backwards ? 'b' : ''
-    call search('\v^|'.a:sepchar.'|$', l:flags, line('.'))
+    exec 'nnoremap <buffer> '. g:CsvHack#search_column_mapping.' :call CsvHack#SearchColumn(col("."), "' . a:sep_char .'")<cr>'
 endfunc
 function! CsvHack#ClearUndo()
 	let l:old_undolevels = &undolevels
@@ -113,6 +117,29 @@ endfunction
 function! s:count_before(char, col, string)
     let l:substr = strpart(a:string, 0, a:col)
     return count(l:substr, a:char)
+endfunction
+function! CsvHack#SearchColumn(col, char)
+    let [l:l, l:r] = s:get_area_limits(a:col, a:char)
+    let l:command = '/\v' . l:l . l:r
+    let l:i = 0
+    while (l:i < len(l:r))
+        let l:i = l:i + 1
+        let l:command = l:command. "\<Left>"
+    endwhile
+    call feedkeys(l:command, 'n')
+endfunc
+function! s:get_area_limits(col, char)
+    let l:p = '\v^(.*'.a:char.')\zs[^'.a:char.']*%'.a:col .'c'
+    let l:line = getline('.')
+    let l:len_l = match(l:line, l:p)
+    let l:len_r = match(l:line, a:char, l:len_l)
+    if (l:len_r == (-1))
+        let l:p_r = ""
+    else
+        let l:p_r = '%<' . l:len_r . 'c'
+    endif
+    let l:p_l = '%>' . l:len_l . 'c'
+    return [l:p_l,l:p_r]
 endfunction
 function! s:regex_for_count(count, char)
     let l:result = "\\v^("
@@ -184,6 +211,45 @@ function! s:is_column_function(buffer_id, regex)
     let l:part = substitute(l:line, a:regex, '\2', 'g')
     return l:part =~# 'Script'
 endfunction
+function! CsvHack#JumpCol(sepchar, backwards)
+    norm! hh
+    let l:flags = a:backwards ? 'b' : ''
+    call search('\v^|'.a:sepchar.'|$', l:flags, line('.'))
+    if (col(".") < col("$")-1)
+        norm! zs
+    endif
+    if (col(".") > 1)
+        norm! ll
+    endif
+endfunc
+function! CsvHack#VertMovement(dir)
+    let l:line = line(".")
+    let l:col = col(".")
+    let l:target = s:findNextLine(l:line+a:dir, l:col, a:dir)
+    let l:dif = abs(l:line - l:target)
+    if (abs(l:line -l:target) > 1)
+        norm! m'
+    endif
+    exec l:target
+endfunction
+function! s:isWhitespace(line, col)
+    let l:cur_line = getline(a:line)
+     " this is a bit fishy with unicode characters but whatever
+    if (len(l:cur_line)< a:col) | return v:true | endif
+    let l:cur_char = matchstr(l:cur_line, '\%' . col('.') . 'c.')
+    return (l:cur_char =~# '\s')
+endfunction
+function! s:findNextLine(line, col, step)
+    let l:cur = a:line
+    let l:end = line("$")
+    while (l:cur > 0 && l:cur < l:end)
+        if (!s:isWhitespace(l:cur, a:col))
+            return l:cur
+        endif
+        let l:cur = l:cur + a:step
+    endwhile
+    return l:cur
+endfunction
 function! s:regex_escape(char)
     if (a:char == "\r") 
         return "\\M\n"
@@ -193,12 +259,12 @@ endfunction
 function! CsvHack#Escape(is_func, lines, seperator_char)
     if (a:is_func)
         let l:buffer = trim(join(map(a:lines, "trim(v:val)"), " "))
-        for [l:k, l:v] in reverse(g:CsvHack#ScriptEscapeChars)
+        for [l:k, l:v] in reverse(copy(g:CsvHack#ScriptEscapeChars))
             let l:buffer = substitute(l:buffer, s:regex_escape(l:v), l:k, 'g')
         endfor
     else
         let l:buffer = join(map(a:lines, "trim(v:val)"), "\n")
-        for [l:k, l:v] in reverse(g:CsvHack#TextEscapeChars)
+        for [l:k, l:v] in reverse(copy(g:CsvHack#TextEscapeChars))
             let l:buffer = substitute(l:buffer, s:regex_escape(l:v), l:k, 'g')
         endfor
     end
