@@ -8,41 +8,39 @@ if (!exists('g:CsvHack#row_d_mapping')) | let g:CsvHack#row_d_mapping = '<a-j>' 
 if (!exists('g:CsvHack#expand_mapping')) | let g:CsvHack#expand_mapping = '<space><space>' | endif
 if (!exists('g:CsvHack#quit_buffer_mapping')) | let g:CsvHack#quit_buffer_mapping = '<esc>' | endif
 
-command! CsvHackEnable call CsvHack#ActivateLocal()
-command! CsvHackDisable call CsvHack#DeactivateLocal()
-" augroup CsvHack#ScrolllockFileGlobal
-"     au!
-"     if g:CsvHack#activate_global
-"         autocmd BufRead *.csv call CsvHack#DetectSeperatorChar()
-"         if g:CsvHack#layout_file
-"             autocmd BufRead *.csv call CsvHack#TableModeAlign()
-"             autocmd BufWriteCmd *.csv call CsvHack#HijackSaving()
-"         endif
-"         if g:CsvHack#pin_header
-"             autocmd WinEnter,BufEnter *.csv call CsvHack#SetupScrolllock()
-"         endif
-"     endif
-" augroup END
-function! CsvHack#ActivateLocal()
-    call CsvHack#DetectSeperatorChar()
-    augroup CsvHack#Local
-        au!
-        autocmd BufRead <buffer> call CsvHack#DetectSeperatorChar()
+command! CsvHackEnable call CsvHack#ActivateLocal(v:true, "")
+command! -bang CsvHackDisable call CsvHack#ActivateLocal(v:false, "<bang>")
+function! CsvHack#ActivateLocal(should_activate, force)
+    if (a:should_activate)
+        augroup CsvHack#Local
+            au!
+            autocmd BufRead <buffer> call CsvHack#DetectSeperatorChar()
+        augroup end
+        call CsvHack#DetectSeperatorChar()
         if g:CsvHack#layout_file
-            call CsvHack#TableModeAlign()
-            autocmd BufRead <buffer> call CsvHack#TableModeAlign()
-            autocmd BufWriteCmd <buffer> call CsvHack#HijackSaving()
+                call CsvHack#TableModeAlign()
+            augroup CsvHack#Local
+                autocmd BufRead <buffer> call CsvHack#TableModeAlign()
+                autocmd BufWriteCmd <buffer> call CsvHack#HijackSaving()
+            augroup end
         endif
         if g:CsvHack#pin_header
-            autocmd WinEnter,BufEnter <buffer> call CsvHack#SetupScrolllock()
             call CsvHack#SetupScrolllock()
+            augroup CsvHack#Local
+                autocmd WinEnter,BufEnter <buffer> call CsvHack#SetupScrolllock()
+            augroup END
         endif
-    augroup END
-endfunc
-function! CsvHack#DeactivateLocal()
-    augroup CsvHack#Local
-        au!
-    augroup end
+    else
+        if (&modified && a:force != "!")
+            throw "Unsaved changes! Save or force with CsvHackDisable!"
+        endif
+        doautocmd User CsvHack_CloseScrollock
+        augroup CsvHack#Local
+            au!
+        augroup END
+        call CsvHack#RemoveMappings()
+        e!
+    endif
 endfunc
 
 function! CsvHack#SetupScrolllock() 
@@ -67,8 +65,16 @@ function! CsvHack#SetupScrolllock()
     augroup Scrolllock
         au!
         exec "autocmd WinLeave,BufLeave <buffer> call CsvHack#CloseWin(" . l:scrolllock_win . ", ". l:main_win . ")"
+        exec "autocmd User CsvHack_CloseScrollock call CsvHack#CloseWin(" . l:scrolllock_win . ", ". l:main_win . ")"
     augroup END
     setlocal nostartofline
+endfunc
+function! CsvHack#RemoveMappings()
+    silent! exec 'unnoremap <buffer> '.g:CsvHack#col_l_mapping
+    silent! exec 'unnoremap <buffer> '.g:CsvHack#col_r_mapping
+    silent! exec 'unnoremap <buffer> '. g:CsvHack#row_d_mapping
+    silent! exec 'unnoremap <buffer> '. g:CsvHack#row_u_mapping
+    silent! exec 'unnoremap <buffer> '. g:CsvHack#expand_mapping
 endfunc
 function! CsvHack#CreateMappings(sep_char)
     exec 'nnoremap <buffer> '.g:CsvHack#col_l_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:true)<cr>'
@@ -89,10 +95,12 @@ function! CsvHack#ClearUndo()
     setlocal nomodified
 endfunc
 function! CsvHack#CloseWin(scrolllock_win, main_win)
-    if (!exists("b:csvhack_scrolllock_win"))
-        return
-    end
-    unlet b:csvhack_scrolllock_win
+    augroup Scrolllock
+        au!
+    augroup END
+    if (exists("b:csvhack_scrolllock_win"))
+        unlet b:csvhack_scrolllock_win
+    endif
     let [l:tab_num, l:win_num] = win_id2tabwin(a:scrolllock_win)
     if (l:tab_num != 0 || l:win_num != 0)
         exec l:tab_num . 'tabdo ' . l:win_num . "wincmd c"
@@ -134,21 +142,19 @@ function! CsvHack#ExpandScript()
     let l:is_func = s:is_column_function(l:old_buf, l:pat)
     let l:callback = "call CsvHack#CompactScript(" . l:old_buf . ","  .  l:lnum . ",'" . l:pat . "', '" . b:seperator_char . "', ". l:is_func . ")"
     let l:buf_name = expand("%:t")
-    if (len(l:res))
-        new
-        set buftype=acwrite
-        set bufhidden=wipe
-        call append(0, l:res)
-        if (l:is_func)
-            set ft=haxe
-        end
-        exec "autocmd BufWriteCmd <buffer> " . l:callback
-        exec 'nnoremap <buffer> ' . g:CsvHack#quit_buffer_mapping . ' :q<cr>'
+    new
+    set buftype=acwrite
+    set bufhidden=wipe
+    call append(0, l:res)
+    if (l:is_func)
+        set ft=haxe
+    end
+    exec "autocmd BufWriteCmd <buffer> " . l:callback
+    exec 'nnoremap <buffer> ' . g:CsvHack#quit_buffer_mapping . ' :q<cr>'
 
-        call CsvHack#Unescape(l:is_func)
-        call CsvHack#ClearUndo()
-        exec "file [" . l:buf_name . "]:" . l:lnum . ":" . (l:csv_col+1)
-    endif
+    call CsvHack#Unescape(l:is_func)
+    call CsvHack#ClearUndo()
+    exec "file [" . l:buf_name . "]:" . l:lnum . ":" . (l:csv_col+1)
 endfunc
 function! s:flags()
     if &gdefault
