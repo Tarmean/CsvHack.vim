@@ -1,28 +1,28 @@
 if (!exists('g:CsvHack#activate_global')) | let g:CsvHack#activate_global = v:false | endif
 if (!exists('g:CsvHack#layout_file')) | let g:CsvHack#layout_file = v:true | endif
 if (!exists('g:CsvHack#pin_header')) | let g:CsvHack#pin_header = v:true | endif
-if (!exists('g:CsvHack#col_l_mapping')) | let g:CsvHack#col_l_mapping = '<a-l>' | endif
-if (!exists('g:CsvHack#col_r_mapping')) | let g:CsvHack#col_r_mapping = '<a-r>' | endif
-if (!exists('g:CsvHack#row_u_mapping')) | let g:CsvHack#col_r_mapping = '<a-k>' | endif
-if (!exists('g:CsvHack#row_d_mapping')) | let g:CsvHack#col_r_mapping = '<a-j>' | endif
+if (!exists('g:CsvHack#col_l_mapping')) | let g:CsvHack#col_l_mapping = '<a-h>' | endif
+if (!exists('g:CsvHack#col_r_mapping')) | let g:CsvHack#col_r_mapping = '<a-l>' | endif
+if (!exists('g:CsvHack#row_u_mapping')) | let g:CsvHack#row_u_mapping = '<a-k>' | endif
+if (!exists('g:CsvHack#row_d_mapping')) | let g:CsvHack#row_d_mapping = '<a-j>' | endif
 if (!exists('g:CsvHack#expand_mapping')) | let g:CsvHack#expand_mapping = '<space><space>' | endif
-if (!exists('g:CsvHack#quit_buffer_mapping')) | let g:CsvHack#expand_mapping = '<esc>' | endif
+if (!exists('g:CsvHack#quit_buffer_mapping')) | let g:CsvHack#quit_buffer_mapping = '<esc>' | endif
 
-command CsvHack#Enable call CsvHack#ActivateLocal()
-command CsvHack#Enable call CsvHack#DeactivateLocal()
-augroup CsvHack#ScrolllockFileGlobal
-    au!
-    if g:CsvHack#activate_global
-        autocmd BufRead *.csv call CsvHack#DetectSeperatorChar()
-        if g:CsvHack#layout_file
-            autocmd BufRead *.csv call CsvHack#TableModeAlign()
-            autocmd BufWriteCmd *.csv call CsvHack#HijackSaving()
-        endif
-        if g:CsvHack#pin_header
-            autocmd WinEnter,BufEnter *.csv call CsvHack#SetupScrolllock()
-        endif
-    endif
-augroup END
+command! CsvHackEnable call CsvHack#ActivateLocal()
+command! CsvHackDisable call CsvHack#DeactivateLocal()
+" augroup CsvHack#ScrolllockFileGlobal
+"     au!
+"     if g:CsvHack#activate_global
+"         autocmd BufRead *.csv call CsvHack#DetectSeperatorChar()
+"         if g:CsvHack#layout_file
+"             autocmd BufRead *.csv call CsvHack#TableModeAlign()
+"             autocmd BufWriteCmd *.csv call CsvHack#HijackSaving()
+"         endif
+"         if g:CsvHack#pin_header
+"             autocmd WinEnter,BufEnter *.csv call CsvHack#SetupScrolllock()
+"         endif
+"     endif
+" augroup END
 function! CsvHack#ActivateLocal()
     call CsvHack#DetectSeperatorChar()
     augroup CsvHack#Local
@@ -46,10 +46,11 @@ function! CsvHack#DeactivateLocal()
 endfunc
 
 function! CsvHack#SetupScrolllock() 
+    call CsvHack#CreateMappings(b:seperator_char)
     if (exists("b:csvhack_scrolllock_win"))
         return
     endif
-    if (exists("b:seperator_char"))
+    if (!exists("b:seperator_char"))
         throw "unknown seperator char"
     endif
     let b:csvhack_scrolllock_win = v:true
@@ -68,15 +69,17 @@ function! CsvHack#SetupScrolllock()
         exec "autocmd WinLeave,BufLeave <buffer> call CsvHack#CloseWin(" . l:scrolllock_win . ", ". l:main_win . ")"
     augroup END
     setlocal nostartofline
-    call CsvHack#CreateMappings(b:seperator_char)
 endfunc
 function! CsvHack#CreateMappings(sep_char)
-    if (!g:CsvHack#create_mappings) | return | endif
-    exec "nnoremap <buffer> ".g:CsvHack#col_l_mapping . " F" . a:sep_char . "<esc>"
-    exec "nnoremap <buffer> ".g:CsvHack#col_r_mapping . " f" . a:sep_char . "<esc>"
-    exec "nnoremap <buffer> ". g:CsvHack#row_d_mapping." <c-f>"
-    exec "nnoremap <buffer> ". g:CsvHack#row_d_mapping." <c-f>"
-    exec "nnoremap <buffer> ".g:CsvHack#expand_mappipng.' :call CsvHack#ExpandScript()<cr>'
+    exec 'nnoremap <buffer> '.g:CsvHack#col_l_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:true)<cr>'
+    exec 'nnoremap <buffer> '.g:CsvHack#col_r_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:false)<cr>'
+    exec 'nnoremap <buffer> '. g:CsvHack#row_d_mapping.' <c-f>'
+    exec 'nnoremap <buffer> '. g:CsvHack#row_u_mapping.' <c-b>'
+    exec 'nnoremap <buffer> '. g:CsvHack#expand_mapping.' :call CsvHack#ExpandScript()<cr>'
+endfunc
+function! CsvHack#JumpCol(sepchar, backwards)
+    let l:flags = a:backwards ? 'b' : ''
+    call search('\v^|'.a:sepchar.'|$', l:flags, line('.'))
 endfunc
 function! CsvHack#ClearUndo()
 	let l:old_undolevels = &undolevels
@@ -230,6 +233,10 @@ function! CsvHack#TableModeAlign()
     if (!exists("b:seperator_char"))
         throw "unknown seperator char"
     endif
+    if (!exists(":TableModeRealign"))
+        throw "dhruvasagar/vim-table-mode required for alignment"
+    endif
+
     let l:old_modified = &modified
     silent! %s/\v\|/§
     silent! exec "%s/\\v".b:seperator_char."/|"
