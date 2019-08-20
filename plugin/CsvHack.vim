@@ -145,7 +145,7 @@ function! CsvHack#ExpandScript()
     new
     set buftype=acwrite
     set bufhidden=wipe
-    call append(0, l:res)
+    call setline(1, l:res)
     if (l:is_func)
         set ft=haxe
     end
@@ -198,11 +198,6 @@ function! CsvHack#Escape(is_func, lines, seperator_char)
         endfor
     else
         let l:buffer = join(map(a:lines, "trim(v:val)"), "\n")
-        if (len(l:buffer) == 0)
-            return ""
-        else
-            let l:buffer = l:buffer[0:-2]
-        end
         for [l:k, l:v] in reverse(g:CsvHack#TextEscapeChars)
             let l:buffer = substitute(l:buffer, s:regex_escape(l:v), l:k, 'g')
         endfor
