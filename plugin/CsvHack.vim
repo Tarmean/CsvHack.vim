@@ -56,6 +56,7 @@ function! CsvHack#SetupScrolllock()
     setlocal scrollbind
     setlocal scrollopt=hor
     setlocal nowrap
+    setlocal virtualedit=all
     split
     wincmd k
     let l:scrolllock_win = win_getid()
@@ -89,7 +90,7 @@ function! CsvHack#CreateMappings(sep_char)
     exec 'nnoremap <buffer> '. g:CsvHack#row_d_mapping.' :call CsvHack#VertMovement(1)<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#row_u_mapping.' :call CsvHack#VertMovement(-1)<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#expand_mapping.' :call CsvHack#ExpandScript()<cr>'
-    exec 'nnoremap <buffer> '. g:CsvHack#search_column_mapping.' :call CsvHack#SearchColumn(col("."), "' . a:sep_char .'")<cr>'
+    exec 'nnoremap <buffer> '. g:CsvHack#search_column_mapping.' :call CsvHack#SearchColumn(virtcol("."), "' . a:sep_char .'")<cr>'
 endfunc
 function! CsvHack#ClearUndo()
 	let l:old_undolevels = &undolevels
@@ -133,12 +134,16 @@ function! s:get_area_limits(col, char)
     let l:line = getline('.')
     let l:len_l = match(l:line, l:p)
     let l:len_r = match(l:line, a:char, l:len_l)
+    if (l:len_l == (-1))
+        let l:p_l = ""
+    else
+        let l:p_l = '%>' . l:len_l . 'c'
+    endif
     if (l:len_r == (-1))
         let l:p_r = ""
     else
         let l:p_r = '%<' . l:len_r . 'c'
     endif
-    let l:p_l = '%>' . l:len_l . 'c'
     return [l:p_l,l:p_r]
 endfunction
 function! s:regex_for_count(count, char)
@@ -160,7 +165,7 @@ function! CsvHack#ExpandScript()
     let l:old_buf = bufnr("%")
 
     let l:lnum = line(".")
-    let l:cnum = col(".")
+    let l:cnum = virtcol(".")
     let l:old_line = getline(l:lnum)
     let l:csv_col = s:count_before(b:seperator_char, l:cnum, l:old_line)
     let l:pat = s:regex_for_count(l:csv_col, b:seperator_char)
@@ -215,7 +220,7 @@ function! CsvHack#JumpCol(sepchar, backwards)
     norm! hh
     let l:flags = a:backwards ? 'b' : ''
     call search('\v^|'.a:sepchar.'|$', l:flags, line('.'))
-    if (col(".") < col("$")-1)
+    if (virtcol(".") < col("$")-1)
         norm! zs
     endif
     if (col(".") > 1)
@@ -224,7 +229,7 @@ function! CsvHack#JumpCol(sepchar, backwards)
 endfunc
 function! CsvHack#VertMovement(dir)
     let l:line = line(".")
-    let l:col = col(".")
+    let l:col = virtcol(".")
     let l:target = s:findNextLine(l:line+a:dir, l:col, a:dir)
     let l:dif = abs(l:line - l:target)
     if (abs(l:line -l:target) > 1)
@@ -236,7 +241,7 @@ function! s:isWhitespace(line, col)
     let l:cur_line = getline(a:line)
      " this is a bit fishy with unicode characters but whatever
     if (len(l:cur_line)< a:col) | return v:true | endif
-    let l:cur_char = matchstr(l:cur_line, '\%' . col('.') . 'c.')
+    let l:cur_char = matchstr(l:cur_line, '\%' . a:col . 'c.')
     return (l:cur_char =~# '\s')
 endfunction
 function! s:findNextLine(line, col, step)
