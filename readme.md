@@ -2,7 +2,7 @@
 
 ### Overview:
 
-[![Watch the video](http://i3.ytimg.com/vi/uzT-x84eLsk/hqdefault.jpg)](https://www.youtube.com/watch?v=uzT-x84eLsk)
+[![Watch the video](http://i3.ytimg.com/vi/oKtKv6BDk60/hqdefault.jpg)](https://www.youtube.com/watch?v=oKtKv6BDk60)
 
 
 The plugin is enabled on a file level with `:CsvHackEnable`. This
