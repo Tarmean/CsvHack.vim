@@ -1,6 +1,7 @@
 if (!exists('g:CsvHack#activate_global')) | let g:CsvHack#activate_global = v:false | endif
 if (!exists('g:CsvHack#layout_file')) | let g:CsvHack#layout_file = v:true | endif
 if (!exists('g:CsvHack#pin_header')) | let g:CsvHack#pin_header = v:true | endif
+if (!exists('g:CsvHack#aggressive_jumplist')) | let g:CsvHack#aggressive_jumplist = v:true | endif
 if (!exists('g:CsvHack#col_l_mapping')) | let g:CsvHack#col_l_mapping = '<a-h>' | endif
 if (!exists('g:CsvHack#col_r_mapping')) | let g:CsvHack#col_r_mapping = '<a-l>' | endif
 if (!exists('g:CsvHack#row_u_mapping')) | let g:CsvHack#row_u_mapping = '<a-k>' | endif
@@ -13,16 +14,21 @@ command! CsvHackEnable call CsvHack#ActivateLocal(v:true, "")
 command! -bang CsvHackDisable call CsvHack#ActivateLocal(v:false, "<bang>")
 function! CsvHack#ActivateLocal(should_activate, force)
     if (a:should_activate)
-        augroup CsvHack#Local
-            au!
-            autocmd BufRead <buffer> call CsvHack#DetectSeperatorChar()
-        augroup end
         call CsvHack#DetectSeperatorChar()
+        " augroup CsvHack#Local
+        "     au!
+        "     autocmd BufRead <buffer> call CsvHack#DetectSeperatorChar()
+        " augroup end
         if g:CsvHack#layout_file
                 call CsvHack#TableModeAlign()
             augroup CsvHack#Local
                 autocmd BufRead <buffer> call CsvHack#TableModeAlign()
                 autocmd BufWriteCmd <buffer> call CsvHack#HijackSaving()
+            augroup end
+        endif
+        if g:CsvHack#aggressive_jumplist
+            augroup CsvHack#Local
+                autocmd CursorMoved <buffer> call CsvHack#UpdateCursorMoved()
             augroup end
         endif
         if g:CsvHack#pin_header
@@ -91,6 +97,7 @@ function! CsvHack#CreateMappings(sep_char)
     exec 'nnoremap <buffer> '. g:CsvHack#row_u_mapping.' :call CsvHack#VertMovement(-1)<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#expand_mapping.' :call CsvHack#ExpandScript()<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#search_column_mapping.' :call CsvHack#SearchColumn(virtcol("."), "' . a:sep_char .'")<cr>'
+    nnoremap <buffer> <c-o> ``
 endfunc
 function! CsvHack#ClearUndo()
 	let l:old_undolevels = &undolevels
@@ -200,7 +207,8 @@ function! CsvHack#Unescape(is_func)
         for [l:from, l:to] in g:CsvHack#ScriptEscapeChars
             exec 'silent! %s/' . s:regex_escape(l:from) . '/' . l:to . '/' . s:flags()
         endfor
-        silent! %s/\v%(([{};])\s*)@>%(else)@!/\1\r
+        silent! %s/^\s*\/\/\$/\0\r
+        silent! %s/\v%(([{};])%(\s*)@>)%(else|;)@!/\1\r
         norm =ie
         %g/^$/d
     else
@@ -227,14 +235,39 @@ function! CsvHack#JumpCol(sepchar, backwards)
         norm! ll
     endif
 endfunc
+if exists("s:working")
+    unlet s:working
+endif
+function! CsvHack#UpdateCursorMoved()
+    let l:vline = line(".")
+    let l:vcol = virtcol(".") 
+    let l:jumplist = getjumplist()
+    let l:a = !exists('w:csvhack_line') 
+    let l:b = !exists('w:csvhack_col') 
+    let l:c = !exists('w:csvhack_jumplist') 
+    if (l:a|| l:b||l:c || w:csvhack_jumplist != l:jumplist)
+        let w:csvhack_line = l:vline
+        let w:csvhack_col = l:vcol
+        let w:csvhack_jumplist = l:jumplist 
+        return
+    endif
+
+    let l:line_moved = abs(l:vline - w:csvhack_line)
+    let l:col_moved = abs(l:vcol - w:csvhack_col)
+     
+    if (l:line_moved + l:col_moved >= 4)
+        call cursor(w:csvhack_line, w:csvhack_col)
+        norm! m'
+        call cursor(l:vline, l:vcol)
+    endif
+    let w:csvhack_line = l:vline
+    let w:csvhack_col = l:vcol
+    let w:csvhack_jumplist = getjumplist()
+endfunc
 function! CsvHack#VertMovement(dir)
     let l:line = line(".")
     let l:col = virtcol(".")
     let l:target = s:findNextLine(l:line+a:dir, l:col, a:dir)
-    let l:dif = abs(l:line - l:target)
-    if (abs(l:line -l:target) > 1)
-        norm! m'
-    endif
     exec l:target
 endfunction
 function! s:isWhitespace(line, col)
@@ -288,27 +321,44 @@ function! CsvHack#CompactScript(buf_nr, line, pat, seperator_char, is_func)
     let l:buffer = l:buffer . repeat(' ', max([0, l:old_len - len(l:buffer)]))
     call setbufline(a:buf_nr, a:line, l:prefix . l:buffer . l:suffix)
     set nomodified
+    call CsvHack#DoSave(a:buf_nr)
 endfunction
 function! CsvHack#HijackSaving()
+  echo "HIJACKED"
   if (!exists("b:seperator_char"))
       throw "unknown seperator char"
   endif
-  let l:content = join(getline(1,'$'), "\n")
-  let l:normalized = substitute(l:content, '\v\s*' . b:seperator_char . ' ', b:seperator_char, 'g')
-  call writefile(split(l:normalized, '\n', 1), expand('%'), 'b')
-  set nomodified
-  return 1
+  return CsvHack#DoSave(bufnr("%"))
+endfunc
+function! CsvHack#DoSave(buf)
+    let l:sep_char = getbufvar(a:buf, 'seperator_char')
+    let l:path = expand("#". a:buf)
+    let l:buf_content = join(getbufline(a:buf, 1, '$'), "\n")
+    echo "NIJACKED"
+    let l:normalized = substitute(l:buf_content, '\v\s*' . l:sep_char . ' ', l:sep_char, 'g')
+    call writefile(split(l:normalized, '\n', 1), l:path, 'b')
+    set nomodified
+    call setbufvar(a:buf, "&modified", 0)
+    return 1
 endfunc
 function! CsvHack#DetectSeperatorChar()
-    let b:seperator_char = match(getline(1), ',') != -1 ? ',' : ';'
+    if(match(getline(1), ',') != -1)
+        let b:seperator_char = ','
+    elseif (match(getline(1), ';') != -1)
+        let b:seperator_char = ';'
+    else
+        throw "Couldn't detect seperator char in: " . getline(1)
+    endif
 endfunc
 function! CsvHack#TableModeAlign()
+    let l:old_reg = @"
     if (!exists("b:seperator_char"))
         throw "unknown seperator char"
     endif
     if (!exists(":TableModeRealign"))
         throw "dhruvasagar/vim-table-mode required for alignment"
     endif
+    let l:pos = getcurpos()[1:]
 
     let l:old_modified = &modified
     silent! %s/\v\|/§
@@ -319,4 +369,6 @@ function! CsvHack#TableModeAlign()
     silent! exec "%s/\\v^" . b:seperator_char . " //"
     silent! %s/§/|
     let &modified = l:old_modified
+    call cursor(l:pos)
+    let @" = l:old_reg
 endfunc
