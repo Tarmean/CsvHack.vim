@@ -25,6 +25,7 @@ The default mappings are:
      let g:CsvHack#row_d_mapping = '<a-j>'
      let g:CsvHack#expand_mapping = '<space><space>'
      let g:CsvHack#quit_buffer_mapping = '<esc>'
+     let g:CsvHack#goto_column = 'ö'
      let g:CsvHack#search_column_mapping = '/'
 
 Expanding a cell opens a buffer with the unescaped contents of the cell.

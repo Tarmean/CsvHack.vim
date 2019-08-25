@@ -6,9 +6,35 @@ if (!exists('g:CsvHack#col_l_mapping')) | let g:CsvHack#col_l_mapping = '<a-h>' 
 if (!exists('g:CsvHack#col_r_mapping')) | let g:CsvHack#col_r_mapping = '<a-l>' | endif
 if (!exists('g:CsvHack#row_u_mapping')) | let g:CsvHack#row_u_mapping = '<a-k>' | endif
 if (!exists('g:CsvHack#row_d_mapping')) | let g:CsvHack#row_d_mapping = '<a-j>' | endif
+if (!exists('g:CsvHack#goto_column')) | let g:CsvHack#goto_column = 'ö' | endif
 if (!exists('g:CsvHack#expand_mapping')) | let g:CsvHack#expand_mapping = '<space><space>' | endif
 if (!exists('g:CsvHack#quit_buffer_mapping')) | let g:CsvHack#quit_buffer_mapping = '<esc>' | endif
 if (!exists('g:CsvHack#search_column_mapping')) | let g:CsvHack#search_column_mapping = '/' | endif
+
+function! CsvHack#ColumnsFzf()
+  if (!exists('b:seperator_char'))
+      throw "Not a CsvHack buffer!"
+  endif
+  if (!exists('*fzf#run'))
+      throw "Requires fzf to be installed"
+  endif
+  return fzf#run(fzf#wrap('columns', {
+  \ 'source':  map(split(getline(1), b:seperator_char), "trim(v:val)"),
+  \ 'sink*':   function('s:handle_fzf_col'),
+  \ 'options': ['+m', '--prompt', 'Columns> ', '--ansi', '--extended', '--layout=reverse-list', '--tabstop=1']
+  \}, 0))
+endfunction
+function! s:handle_fzf_col(arg)
+    if (len(a:arg) == 0) | return | endif
+    let a:saved_cursor = getcurpos()
+    call cursor(1, 0)
+    let [l:line, l:col] = searchpos('\M'.a:arg[0], 'nW', 1)
+    if (l:col != 0)
+        let a:saved_cursor[2] = l:col
+        let a:saved_cursor[4] = l:col
+    endif
+    call setpos('.', a:saved_cursor)
+endfunc
 
 command! CsvHackEnable call CsvHack#ActivateLocal(v:true, "")
 command! -bang CsvHackDisable call CsvHack#ActivateLocal(v:false, "<bang>")
@@ -89,6 +115,7 @@ function! CsvHack#RemoveMappings()
     silent! exec 'unnoremap <buffer> '. g:CsvHack#row_u_mapping
     silent! exec 'unnoremap <buffer> '. g:CsvHack#expand_mapping
     silent! exec 'unnoremap <buffer> '. g:CsvHack#search_column_mapping
+    silent! exec 'unnoremap <buffer> '. g:CsvHack#goto_column
 endfunc
 function! CsvHack#CreateMappings(sep_char)
     exec 'nnoremap <buffer> '.g:CsvHack#col_l_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:true)<cr>'
@@ -96,6 +123,7 @@ function! CsvHack#CreateMappings(sep_char)
     exec 'nnoremap <buffer> '. g:CsvHack#row_d_mapping.' :call CsvHack#VertMovement(1)<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#row_u_mapping.' :call CsvHack#VertMovement(-1)<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#expand_mapping.' :call CsvHack#ExpandScript()<cr>'
+    exec 'nnoremap <buffer> '. g:CsvHack#goto_column.' :call CsvHack#ColumnsFzf()<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#search_column_mapping.' :call CsvHack#SearchColumn(virtcol("."), "' . a:sep_char .'")<cr>'
     nnoremap <buffer> <c-o> ``
 endfunc
@@ -207,8 +235,11 @@ function! CsvHack#Unescape(is_func)
         for [l:from, l:to] in g:CsvHack#ScriptEscapeChars
             exec 'silent! %s/' . s:regex_escape(l:from) . '/' . l:to . '/' . s:flags()
         endfor
-        silent! %s/^\s*\/\/\$/\0\r
-        silent! %s/\v%(([{};])%(\s*)@>)%(else|;)@!/\1\r
+        if (search('\n.', 'n') == 0)
+            silent! %s/^\s*\/\/\$/\0\r
+            silent! %s/\v%(([{};])%(\s*)@>)%(else|;)@!/\1\r
+            silent! %s/\*\//*\/\r
+        endif
         norm =ie
         %g/^$/d
     else
@@ -217,7 +248,7 @@ function! CsvHack#Unescape(is_func)
         endfor
     end
 endfunction
-let g:CsvHack#ScriptEscapeChars = [ ['[;]' , ','], ['~' , '"'], ['|' , ','], ['#' , '||']]
+let g:CsvHack#ScriptEscapeChars = [['  ', '\r'], ['[;]' , ','], ['~' , '"'], ['|' , ','], ['#' , '||']]
 let g:CsvHack#TextEscapeChars = [ ['[;]' , ','], ['|' , "\r"] ]
 function! s:is_column_function(buffer_id, regex)
     let l:line = getbufline(a:buffer_id, 1)[0]
@@ -296,7 +327,7 @@ function! s:regex_escape(char)
 endfunction
 function! CsvHack#Escape(is_func, lines, seperator_char)
     if (a:is_func)
-        let l:buffer = trim(join(map(a:lines, "trim(v:val)"), " "))
+        let l:buffer = trim(join(map(a:lines, "trim(v:val)"), "\r"))
         for [l:k, l:v] in reverse(copy(g:CsvHack#ScriptEscapeChars))
             let l:buffer = substitute(l:buffer, s:regex_escape(l:v), l:k, 'g')
         endfor
@@ -317,7 +348,6 @@ function! CsvHack#CompactScript(buf_nr, line, pat, seperator_char, is_func)
     let l:old_len = len(substitute(l:old_line, a:pat, '\2', ""))
     let l:suffix = substitute(l:old_line, a:pat, '\3', "")
     let l:buffer = ' ' . l:buffer . ' '
-    let l:buffer = substitute(l:buffer, '\s\+', ' ', 'g')
     let l:buffer = l:buffer . repeat(' ', max([0, l:old_len - len(l:buffer)]))
     call setbufline(a:buf_nr, a:line, l:prefix . l:buffer . l:suffix)
     set nomodified
