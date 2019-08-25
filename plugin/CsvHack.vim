@@ -18,10 +18,10 @@ command! CsvHackEnable call CsvHack#ActivateLocal(v:true, "")
 command! -bang CsvHackDisable call CsvHack#ActivateLocal(v:false, "<bang>")
 
 function! s:search_first_line(regex)
-    let a:saved_cursor = getcurpos()
+    let a:saved_cursor = winsaveview()
     call cursor(1, 1)
     let result = searchpos(a:regex, 'nW', 1)
-    call setpos('.', a:saved_cursor)
+    call winrestview(a:saved_cursor)
     return result
 endfunction
 
@@ -38,13 +38,13 @@ function! CsvHack#ActivateLocal(should_activate, force)
         endif
         if g:CsvHack#aggressive_jumplist
             augroup CsvHack#Local
-                autocmd CursorMoved <buffer> call CsvHack#UpdateCursorMoved()
+                " autocmd CursorMoved <buffer> call CsvHack#UpdateCursorMoved()
             augroup end
         endif
         if g:CsvHack#pin_header
             call CsvHack#SetupScrolllock('hor', [])
             augroup CsvHack#Local
-                autocmd WinEnter,BufEnter <buffer> if (!CsvHack#HasScrolllockWin()) |  call CsvHack#SetupScrolllock('hor', []) | endif
+                autocmd WinEnter,BufEnter <buffer> if (!CsvHack#HasScrolllockWin()) |  call CsvHack#SetupScrolllock('hor', []) | else | call CsvHack#AlignView() | endif
             augroup END
         endif
     else
@@ -62,11 +62,11 @@ endfunc
 
 function! s:get_area_limits_by_nr(col_nr, sep_char)
     let l:regex = s:regex_for_count(a:col_nr, a:sep_char, '\zs', '')
-    let a:saved_cursor = getcurpos()
+    let a:saved_cursor = winsaveview()
     call cursor(1, 1)
     call search(l:regex, 'W', 1)
     let result = s:get_area_limits(virtcol("."), a:sep_char)
-    call setpos('.', a:saved_cursor)
+    call winrestview(a:saved_cursor)
     return result
 endfunc
 
@@ -86,6 +86,7 @@ function! CsvHack#HasScrolllockWin()
 endfunc
 
 function! CsvHack#SetupScrolllock(mode, col) 
+    call s:timestep()
     call s:decho( " Setup Scrollock, mode: " . a:mode)
     call s:timestep()
     call CsvHack#CloseWin(win_getid())
@@ -93,10 +94,10 @@ function! CsvHack#SetupScrolllock(mode, col)
     call s:timestep()
     let l:main_win = win_getid()
     let l:main_buf = bufnr("")
-    let l:saved_view = winsaveview()
     if (a:mode =~ "^hor")
-        let l:saved_view['lnum'] = 1
-        setlocal scrollbind scrollopt=hor cursorbind
+        let b:csvhack_scrolllock_mode = "hor"
+        let l:saved_view = s:get_scrolllock_view("hor")
+        setlocal scrollbind scrollopt=hor
         call s:timestep()
         let a:line1 = getline(1)
         above sp +enew
@@ -108,11 +109,12 @@ function! CsvHack#SetupScrolllock(mode, col)
         call s:timestep()
         call setbufvar(l:main_buf, "csvhack_scrolllock_buf", bufnr(""))
         call s:timestep()
-        setlocal scrollbind scrollopt=hor cursorbind
+        setlocal scrollbind scrollopt=hor
         set bufhidden=wipe nowrap
         call s:timestep()
         call winrestview(l:saved_view)
         call s:timestep()
+        let l:new_buf = bufnr("")
         wincmd w
         call s:timestep()
 
@@ -127,7 +129,9 @@ function! CsvHack#SetupScrolllock(mode, col)
             exec "autocmd User CsvHack_CloseScrollock call CsvHack#CloseWin(" l:main_win . ")"
         augroup END
     elseif (a:mode =~ '^ver')
-        let l:saved_view['leftcol'] = 0
+        let b:csvhack_scrolllock_mode = "ver"
+        set signcolumn=yes
+        let l:saved_view = s:get_scrolllock_view('ver')
         if (!exists("b:seperator_char"))
             throw "unknown seperator char"
         endif
@@ -136,7 +140,7 @@ function! CsvHack#SetupScrolllock(mode, col)
         else
             let [l:l, l:r] = s:get_area_limits(a:col, b:seperator_char)
         endif
-        setlocal scrollopt=ver scrollbind cursorbind
+        setlocal scrollopt=ver scrollbind
         let l:i = 0
         let a:lines = getline(1, '$')
         while (l:i < len(a:lines))
@@ -155,8 +159,8 @@ function! CsvHack#SetupScrolllock(mode, col)
         set nomodified
         set bufhidden=wipe nowrap
         call s:timestep()
-        exec "vertical resize " . (l:r - l:l)
-        setlocal scrollopt=ver scrollbind cursorbind nonu nornu fdc=0 winfixheight
+        exec "vertical resize " . (l:r - l:l + 1)
+        setlocal scrollopt=ver scrollbind nonu nornu fdc=0 winfixheight winfixwidth
         call s:timestep()
         call setbufvar(l:main_buf, "csvhack_scrolllock_buf", bufnr(""))
         call s:timestep()
@@ -169,6 +173,29 @@ function! CsvHack#SetupScrolllock(mode, col)
     endif
     call s:timestep()
 endfunc
+function! s:get_scrolllock_view(mode)
+    let l:saved_view = winsaveview()
+    if (a:mode == 'ver')
+        let l:saved_view['leftcol'] = 0
+        let l:saved_view['col'] = 0
+        let l:saved_view['coladd'] = 0
+        let l:saved_view['colskip'] = 0
+    else
+        let l:saved_view['lnum'] = 1
+    endif
+    return l:saved_view
+endfunc
+function! CsvHack#AlignView()
+    if (b:csvhack_scrolllock_mode != 'ver')
+        return
+    endif
+    let l:view  = s:get_scrolllock_view(b:csvhack_scrolllock_mode)
+    let l:buf = b:csvhack_scrolllock_buf
+    let l:cur_buf = bufnr("")
+    exec bufwinnr(l:buf) . "wincmd w "
+    call winrestview(l:view)
+    exec bufwinnr(l:cur_buf) . "wincmd w "
+endfunc
 function! s:decho(arg)
     if s:debug
         echo a:arg
@@ -180,6 +207,7 @@ function! s:timestep()
     endif
 endfunc
 function! CsvHack#CloseWin(main_win)
+    call setbufvar(a:main_win, '&signcolumn', 'no')
     augroup Scrolllock
         au!
     augroup END
@@ -493,6 +521,7 @@ function! s:fzf(callback)
     if (!exists('*fzf#run'))
         throw "Requires fzf to be installed"
     endif
+    let s:saved_view = winsaveview()
     return fzf#run(fzf#wrap('columns', {
                 \ 'source':  map(split(getline(1), b:seperator_char), "trim(v:val)"),
                 \ 'sink*':   a:callback,
@@ -500,18 +529,27 @@ function! s:fzf(callback)
                 \}, 0))
 endfunc
 function! CsvHack#ColumnsFzf()
-     call s:fzf(function('s:handle_fzf_col'))
+    call s:fzf(function('s:handle_fzf_col'))
 endfunction
 function! CsvHack#ColumnsLockFzf()
-     call s:fzf(function("s:lock_col"))
+    call s:fzf(function("s:lock_col"))
 endfunction
 function! s:lock_col(arg)
-    if (len(a:arg) == 0) | return | endif
+    call winrestview(s:saved_view)
+    " if (len(a:arg) == 0) | return | endif
     let [l:line, l:col] = s:search_first_line('\M'.a:arg[0])
     call CsvHack#SetupScrolllock('ver', l:col)
 endfunc
 function! s:handle_fzf_col(arg)
+    call winrestview(s:saved_view)
     if (len(a:arg) == 0) | return | endif
     let [l:line, l:col] = s:search_first_line('\M'.a:arg[0])
     exec "norm " . l:col . "|"
+    norm! hh
+    if (virtcol(".") < col("$")-1)
+        norm! zs
+    endif
+    if (col(".") > 1)
+        norm! ll
+    endif
 endfunc
