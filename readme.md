@@ -35,6 +35,20 @@ Saving that buffer stores the escaped contents back into the cell.
 - row_u and row_d scan up/down until the next non-empty entry in the current collumn
 - search_column_mapping searches in the current column
 
+### Column locking:
+
+By default a quickfix window containing header names is locked to the top of the screen. This can be disabled with `g:CsvHack#pin_header = v:false`.
+
+With `:CsvHackLockColumn` you can instead pin a column to the left of the window. This is mutually exclusive with row locking, closing the window containing the locked column will show the column names again.
+
+`:CsvHack#LocalColumn` uses fzf to pick a row, to use the column under the cursor use:
+
+    call CsvHack#SetupScrolllock('ver', virtcol("."))
+
+You can also use the nth column with:
+
+    call CsvHack#SetupScrolllock('ver_by_nr', n)
+
 ### Escaping:
 
 The default escape mappings are 

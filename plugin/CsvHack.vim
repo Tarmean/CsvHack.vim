@@ -11,42 +11,26 @@ if (!exists('g:CsvHack#expand_mapping')) | let g:CsvHack#expand_mapping = '<spac
 if (!exists('g:CsvHack#quit_buffer_mapping')) | let g:CsvHack#quit_buffer_mapping = '<esc>' | endif
 if (!exists('g:CsvHack#search_column_mapping')) | let g:CsvHack#search_column_mapping = '/' | endif
 
-function! CsvHack#ColumnsFzf()
-  if (!exists('b:seperator_char'))
-      throw "Not a CsvHack buffer!"
-  endif
-  if (!exists('*fzf#run'))
-      throw "Requires fzf to be installed"
-  endif
-  return fzf#run(fzf#wrap('columns', {
-  \ 'source':  map(split(getline(1), b:seperator_char), "trim(v:val)"),
-  \ 'sink*':   function('s:handle_fzf_col'),
-  \ 'options': ['+m', '--prompt', 'Columns> ', '--ansi', '--extended', '--layout=reverse-list', '--tabstop=1']
-  \}, 0))
-endfunction
-function! s:handle_fzf_col(arg)
-    if (len(a:arg) == 0) | return | endif
-    let a:saved_cursor = getcurpos()
-    call cursor(1, 0)
-    let [l:line, l:col] = searchpos('\M'.a:arg[0], 'nW', 1)
-    if (l:col != 0)
-        let a:saved_cursor[2] = l:col
-        let a:saved_cursor[4] = l:col
-    endif
-    call setpos('.', a:saved_cursor)
-endfunc
+let s:debug = v:false
 
+command! CsvHackLockColumn call CsvHack#ColumnsLockFzf()
 command! CsvHackEnable call CsvHack#ActivateLocal(v:true, "")
 command! -bang CsvHackDisable call CsvHack#ActivateLocal(v:false, "<bang>")
+
+function! s:search_first_line(regex)
+    let a:saved_cursor = getcurpos()
+    call cursor(1, 1)
+    let result = searchpos(a:regex, 'nW', 1)
+    call setpos('.', a:saved_cursor)
+    return result
+endfunction
+
 function! CsvHack#ActivateLocal(should_activate, force)
     if (a:should_activate)
+        call CsvHack#CreateMappings(b:seperator_char)
         call CsvHack#DetectSeperatorChar()
-        " augroup CsvHack#Local
-        "     au!
-        "     autocmd BufRead <buffer> call CsvHack#DetectSeperatorChar()
-        " augroup end
         if g:CsvHack#layout_file
-                call CsvHack#TableModeAlign()
+            call CsvHack#TableModeAlign()
             augroup CsvHack#Local
                 autocmd BufRead <buffer> call CsvHack#TableModeAlign()
                 autocmd BufWriteCmd <buffer> call CsvHack#HijackSaving()
@@ -58,9 +42,9 @@ function! CsvHack#ActivateLocal(should_activate, force)
             augroup end
         endif
         if g:CsvHack#pin_header
-            call CsvHack#SetupScrolllock()
+            call CsvHack#SetupScrolllock('hor', [])
             augroup CsvHack#Local
-                autocmd WinEnter,BufEnter <buffer> call CsvHack#SetupScrolllock()
+                autocmd WinEnter,BufEnter <buffer> if (!CsvHack#HasScrolllockWin()) |  call CsvHack#SetupScrolllock('hor', []) | endif
             augroup END
         endif
     else
@@ -76,38 +60,144 @@ function! CsvHack#ActivateLocal(should_activate, force)
     endif
 endfunc
 
-function! CsvHack#SetupScrolllock() 
-    call CsvHack#CreateMappings(b:seperator_char)
-    if (exists("b:csvhack_scrolllock_win"))
-        return
-    endif
-    if (!exists("b:seperator_char"))
-        throw "unknown seperator char"
-    endif
-    let b:csvhack_scrolllock_win = v:true
-    setlocal scrollbind
-    setlocal scrollopt=hor
-    setlocal nowrap
-    setlocal virtualedit=all
-    split
-    wincmd k
-    let l:scrolllock_win = win_getid()
-    resize 1
-    norm! gg
-    wincmd j
+function! s:get_area_limits_by_nr(col_nr, sep_char)
+    let l:regex = s:regex_for_count(a:col_nr, a:sep_char, '\zs', '')
+    let a:saved_cursor = getcurpos()
+    call cursor(1, 1)
+    call search(l:regex, 'W', 1)
+    let result = s:get_area_limits(virtcol("."), a:sep_char)
+    call setpos('.', a:saved_cursor)
+    return result
+endfunc
+
+function! CsvHack#HasScrolllockWin()
+    if !exists("b:csvhack_scrolllock_buf")
+        call s:decho( "checkscrollwin, not set")
+        return v:false
+    elseif(b:csvhack_scrolllock_buf == 'pending')
+        call s:decho( "checkscrollwin, buf pending")
+        return v:true
+    elseif bufexists(b:csvhack_scrolllock_buf)
+        call s:decho ("checkscrollwin, buf exists")
+        return v:true
+    end
+    call s:decho( "checkscrollwin, buf removed")
+    return v:false
+endfunc
+
+function! CsvHack#SetupScrolllock(mode, col) 
+    call s:decho( " Setup Scrollock, mode: " . a:mode)
+    call s:timestep()
+    call CsvHack#CloseWin(win_getid())
+    let b:csvhack_scrolllock_buf = 'pending'
+    call s:timestep()
     let l:main_win = win_getid()
+    let l:main_buf = bufnr("")
+    let l:saved_view = winsaveview()
+    if (a:mode =~ "^hor")
+        let l:saved_view['lnum'] = 1
+        setlocal scrollbind scrollopt=hor cursorbind
+        call s:timestep()
+        let a:line1 = getline(1)
+        above sp +enew
+        call s:timestep()
+        call setline(1, a:line1)
+        set nomodified
+        call s:timestep()
+        resize 1
+        call s:timestep()
+        call setbufvar(l:main_buf, "csvhack_scrolllock_buf", bufnr(""))
+        call s:timestep()
+        setlocal scrollbind scrollopt=hor cursorbind
+        set bufhidden=wipe nowrap
+        call s:timestep()
+        call winrestview(l:saved_view)
+        call s:timestep()
+        wincmd w
+        call s:timestep()
+
+        augroup Scrolllock
+            au!
+            " we only want the header bar if the currently active windodw has is a
+            " cvs file.
+            " winleave disables the bar when switching windows, bufleave when changing the currently displayed file
+            " bufleave doesn't trigger when switching between windows with the
+            " same buffer
+            exec "autocmd WinLeave,BufLeave <buffer> call CsvHack#CloseWin(" . l:main_win . ")"
+            exec "autocmd User CsvHack_CloseScrollock call CsvHack#CloseWin(" l:main_win . ")"
+        augroup END
+    elseif (a:mode =~ '^ver')
+        let l:saved_view['leftcol'] = 0
+        if (!exists("b:seperator_char"))
+            throw "unknown seperator char"
+        endif
+        if (a:mode =~ 'by_nr$')
+            let [l:l, l:r] = s:get_area_limits_by_nr(a:col, b:seperator_char)
+        else
+            let [l:l, l:r] = s:get_area_limits(a:col, b:seperator_char)
+        endif
+        setlocal scrollopt=ver scrollbind cursorbind
+        let l:i = 0
+        let a:lines = getline(1, '$')
+        while (l:i < len(a:lines))
+            if (l:r == -1) 
+                let a:lines[i] = strpart(a:lines[i], l:l)
+            else
+                let a:lines[i] = strpart(a:lines[i], l:l, l:r - l:l)
+            endif
+            let l:i += 1
+        endwhile
+        call s:timestep()
+        leftabove vsplit +enew
+        call s:timestep()
+        call setline(1, a:lines)
+        call s:timestep()
+        set nomodified
+        set bufhidden=wipe nowrap
+        call s:timestep()
+        exec "vertical resize " . (l:r - l:l)
+        setlocal scrollopt=ver scrollbind cursorbind nonu nornu fdc=0 winfixheight
+        call s:timestep()
+        call setbufvar(l:main_buf, "csvhack_scrolllock_buf", bufnr(""))
+        call s:timestep()
+        call winrestview(l:saved_view)
+        call s:timestep()
+        wincmd w
+        call s:timestep()
+    else
+        throw "Unknown mode " . a:mode
+    endif
+    call s:timestep()
+endfunc
+function! s:decho(arg)
+    if s:debug
+        echo a:arg
+    endif
+endfunc
+function! s:timestep()
+    if s:debug
+        redraw! | call getchar()
+    endif
+endfunc
+function! CsvHack#CloseWin(main_win)
     augroup Scrolllock
         au!
-        " we only want the header bar if the currently active windodw has is a
-        " cvs file.
-        " winleave disables the bar when switching windows, bufleave when changing the currently displayed file
-        " bufleave doesn't trigger when switching between windows with the
-        " same buffer
-        exec "autocmd WinLeave,BufLeave <buffer> call CsvHack#CloseWin(" . l:scrolllock_win . ", ". l:main_win . ")"
-        exec "autocmd User CsvHack_CloseScrollock call CsvHack#CloseWin(" . l:scrolllock_win . ", ". l:main_win . ")"
     augroup END
-    setlocal nostartofline
-endfunc
+    if (!CsvHack#HasScrolllockWin())
+        return
+    endif
+    let l:scroll_win = bufwinid(b:csvhack_scrolllock_buf)
+    let [l:tab_num, l:win_num] = win_id2tabwin(l:scroll_win)
+    call s:decho("closing buf : " . b:csvhack_scrolllock_buf . " win: " . l:win_num)
+    if (l:tab_num != 0 || l:win_num != 0)
+        exec l:tab_num . 'tabdo ' . l:win_num . "wincmd c"
+    endif
+    let [l:tab_num, l:win_num] = win_id2tabwin(a:main_win)
+    if (l:tab_num != 0 || l:win_num != 0)
+        exec l:tab_num . 'tabdo ' . l:win_num . "windo  setlocal noscrollbind"
+    endif
+    unlet b:csvhack_scrolllock_buf
+endfunction
 function! CsvHack#RemoveMappings()
     silent! exec 'unnoremap <buffer> '.g:CsvHack#col_l_mapping
     silent! exec 'unnoremap <buffer> '.g:CsvHack#col_r_mapping
@@ -118,6 +208,9 @@ function! CsvHack#RemoveMappings()
     silent! exec 'unnoremap <buffer> '. g:CsvHack#goto_column
 endfunc
 function! CsvHack#CreateMappings(sep_char)
+    setlocal nowrap
+    setlocal virtualedit=all
+    setlocal nostartofline
     exec 'nnoremap <buffer> '.g:CsvHack#col_l_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:true)<cr>'
     exec 'nnoremap <buffer> '.g:CsvHack#col_r_mapping . ' :call CsvHack#JumpCol("'.a:sep_char . '", v:false)<cr>'
     exec 'nnoremap <buffer> '. g:CsvHack#row_d_mapping.' :call CsvHack#VertMovement(1)<cr>'
@@ -128,35 +221,19 @@ function! CsvHack#CreateMappings(sep_char)
     nnoremap <buffer> <c-o> ``
 endfunc
 function! CsvHack#ClearUndo()
-	let l:old_undolevels = &undolevels
-	setlocal undolevels=-1
-	exe "normal a \<BS>\<Esc>"
-	exec "setlocal undolevels =" . l:old_undolevels
+    let l:old_undolevels = &undolevels
+    setlocal undolevels=-1
+    exe "normal a \<BS>\<Esc>"
+    exec "setlocal undolevels =" . l:old_undolevels
     setlocal nomodified
 endfunc
-function! CsvHack#CloseWin(scrolllock_win, main_win)
-    augroup Scrolllock
-        au!
-    augroup END
-    if (exists("b:csvhack_scrolllock_win"))
-        unlet b:csvhack_scrolllock_win
-    endif
-    let [l:tab_num, l:win_num] = win_id2tabwin(a:scrolllock_win)
-    if (l:tab_num != 0 || l:win_num != 0)
-        exec l:tab_num . 'tabdo ' . l:win_num . "wincmd c"
-    endif
-    let [l:tab_num, l:win_num] = win_id2tabwin(a:main_win)
-    if (l:tab_num != 0 || l:win_num != 0)
-        exec l:tab_num . 'tabdo ' . l:win_num . "windo  setlocal noscrollbind"
-    endif
-endfunction
 function! s:count_before(char, col, string)
     let l:substr = strpart(a:string, 0, a:col)
     return count(l:substr, a:char)
 endfunction
 function! CsvHack#SearchColumn(col, char)
     let [l:l, l:r] = s:get_area_limits(a:col, a:char)
-    let l:command = '/\v' . l:l . l:r
+    let l:command = '/\v' . s:area_limit_to_regex(l:l) . s:area_limit_to_regex(l:r)
     let l:i = 0
     while (l:i < len(l:r))
         let l:i = l:i + 1
@@ -170,18 +247,24 @@ function! s:get_area_limits(col, char)
     let l:len_l = match(l:line, l:p)
     let l:len_r = match(l:line, a:char, l:len_l)
     if (l:len_l == (-1))
-        let l:p_l = ""
+        let l:p_l = 0
     else
-        let l:p_l = '%>' . l:len_l . 'c'
+        let l:p_l = l:len_l
     endif
     if (l:len_r == (-1))
-        let l:p_r = ""
+        let l:p_r = -1
     else
-        let l:p_r = '%<' . l:len_r . 'c'
+        let l:p_r = l:len_r
     endif
     return [l:p_l,l:p_r]
 endfunction
-function! s:regex_for_count(count, char)
+function! s:area_limit_to_regex(s)
+    if (a:s <= 0)
+        return ""
+    endif
+    return "%" . a:s . "c
+endfunction
+function! s:regex_for_count(count, char, sep_1, sep_2)
     let l:result = "\\v^("
     let l:i = 0
     let l:part = "[^" . a:char . "]*"
@@ -189,8 +272,8 @@ function! s:regex_for_count(count, char)
         let l:result = l:result . l:part . a:char
         let l:i += 1
     endwhile
-    let l:result = l:result . ")(" . l:part
-    let l:result = l:result . ")(" . a:char . ".*)?$"
+    let l:result = l:result . ")" . a:sep_1 . "(" . l:part
+    let l:result = l:result . ")". a:sep_2 . "(" . a:char . ".*)?$"
     return l:result
 endfunction
 function! CsvHack#ExpandScript()
@@ -203,7 +286,7 @@ function! CsvHack#ExpandScript()
     let l:cnum = virtcol(".")
     let l:old_line = getline(l:lnum)
     let l:csv_col = s:count_before(b:seperator_char, l:cnum, l:old_line)
-    let l:pat = s:regex_for_count(l:csv_col, b:seperator_char)
+    let l:pat = s:regex_for_count(l:csv_col, b:seperator_char, '', '')
     let l:res = trim(substitute(l:old_line, l:pat, '\2', ''))
 
     let l:is_func = s:is_column_function(l:old_buf, l:pat)
@@ -285,7 +368,7 @@ function! CsvHack#UpdateCursorMoved()
 
     let l:line_moved = abs(l:vline - w:csvhack_line)
     let l:col_moved = abs(l:vcol - w:csvhack_col)
-     
+
     if (l:line_moved + l:col_moved >= 4)
         call cursor(w:csvhack_line, w:csvhack_col)
         norm! m'
@@ -303,7 +386,7 @@ function! CsvHack#VertMovement(dir)
 endfunction
 function! s:isWhitespace(line, col)
     let l:cur_line = getline(a:line)
-     " this is a bit fishy with unicode characters but whatever
+    " this is a bit fishy with unicode characters but whatever
     if (len(l:cur_line)< a:col) | return v:true | endif
     let l:cur_char = matchstr(l:cur_line, '\%' . a:col . 'c.')
     return (l:cur_char =~# '\s')
@@ -354,17 +437,17 @@ function! CsvHack#CompactScript(buf_nr, line, pat, seperator_char, is_func)
     call CsvHack#DoSave(a:buf_nr)
 endfunction
 function! CsvHack#HijackSaving()
-  echo "HIJACKED"
-  if (!exists("b:seperator_char"))
-      throw "unknown seperator char"
-  endif
-  return CsvHack#DoSave(bufnr("%"))
+    call s:decho("HIJACKED")
+    if (!exists("b:seperator_char"))
+        throw "unknown seperator char"
+    endif
+    return CsvHack#DoSave(bufnr("%"))
 endfunc
 function! CsvHack#DoSave(buf)
     let l:sep_char = getbufvar(a:buf, 'seperator_char')
     let l:path = expand("#". a:buf)
     let l:buf_content = join(getbufline(a:buf, 1, '$'), "\n")
-    echo "NIJACKED"
+    call s:decho( "NIJACKED")
     let l:normalized = substitute(l:buf_content, '\v\s*' . l:sep_char . ' ', l:sep_char, 'g')
     call writefile(split(l:normalized, '\n', 1), l:path, 'b')
     set nomodified
@@ -401,4 +484,34 @@ function! CsvHack#TableModeAlign()
     let &modified = l:old_modified
     call cursor(l:pos)
     let @" = l:old_reg
+endfunc
+
+function! s:fzf(callback)
+    if (!exists('b:seperator_char'))
+        throw "Not a CsvHack buffer!"
+    endif
+    if (!exists('*fzf#run'))
+        throw "Requires fzf to be installed"
+    endif
+    return fzf#run(fzf#wrap('columns', {
+                \ 'source':  map(split(getline(1), b:seperator_char), "trim(v:val)"),
+                \ 'sink*':   a:callback,
+                \ 'options': ['+m', '--prompt', 'Columns> ', '--ansi', '--extended', '--layout=reverse-list', '--tabstop=1']
+                \}, 0))
+endfunc
+function! CsvHack#ColumnsFzf()
+     call s:fzf(function('s:handle_fzf_col'))
+endfunction
+function! CsvHack#ColumnsLockFzf()
+     call s:fzf(function("s:lock_col"))
+endfunction
+function! s:lock_col(arg)
+    if (len(a:arg) == 0) | return | endif
+    let [l:line, l:col] = s:search_first_line('\M'.a:arg[0])
+    call CsvHack#SetupScrolllock('ver', l:col)
+endfunc
+function! s:handle_fzf_col(arg)
+    if (len(a:arg) == 0) | return | endif
+    let [l:line, l:col] = s:search_first_line('\M'.a:arg[0])
+    exec "norm " . l:col . "|"
 endfunc
