@@ -27,8 +27,8 @@ endfunction
 
 function! CsvHack#ActivateLocal(should_activate, force)
     if (a:should_activate)
-        call CsvHack#CreateMappings(b:seperator_char)
         call CsvHack#DetectSeperatorChar()
+        call CsvHack#CreateMappings(b:seperator_char)
         if g:CsvHack#layout_file
             call CsvHack#TableModeAlign()
             augroup CsvHack#Local
@@ -50,6 +50,7 @@ function! CsvHack#ActivateLocal(should_activate, force)
     else
         if (&modified && a:force != "!")
             throw "Unsaved changes! Save or force with CsvHackDisable!"
+            return
         endif
         doautocmd User CsvHack_CloseScrollock
         augroup CsvHack#Local
@@ -261,9 +262,11 @@ function! s:count_before(char, col, string)
 endfunction
 function! CsvHack#SearchColumn(col, char)
     let [l:l, l:r] = s:get_area_limits(a:col, a:char)
-    let l:command = '/\v' . s:area_limit_to_regex(l:l) . s:area_limit_to_regex(l:r)
+    let l:rl = l:l > 0 ? "%>" . l:l . "c" : ""
+    let l:rr = l:r > 0 ? "%<" . l:r . "c" : ""
+    let l:command = '/\v' . l:rl . l:rr
     let l:i = 0
-    while (l:i < len(l:r))
+    while (l:i < len(l:rr))
         let l:i = l:i + 1
         let l:command = l:command. "\<Left>"
     endwhile
@@ -286,12 +289,6 @@ function! s:get_area_limits(col, char)
     endif
     return [l:p_l,l:p_r]
 endfunction
-function! s:area_limit_to_regex(s)
-    if (a:s <= 0)
-        return ""
-    endif
-    return "%" . a:s . "c
-endfunction
 function! s:regex_for_count(count, char, sep_1, sep_2)
     let l:result = "\\v^("
     let l:i = 0
@@ -307,6 +304,7 @@ endfunction
 function! CsvHack#ExpandScript()
     if (!exists("b:seperator_char"))
         throw "unknown seperator char"
+        return
     endif
     let l:old_buf = bufnr("%")
 
@@ -468,6 +466,7 @@ function! CsvHack#HijackSaving()
     call s:decho("HIJACKED")
     if (!exists("b:seperator_char"))
         throw "unknown seperator char"
+        return
     endif
     return CsvHack#DoSave(bufnr("%"))
 endfunc
@@ -495,9 +494,11 @@ function! CsvHack#TableModeAlign()
     let l:old_reg = @"
     if (!exists("b:seperator_char"))
         throw "unknown seperator char"
+        return
     endif
     if (!exists(":TableModeRealign"))
         throw "dhruvasagar/vim-table-mode required for alignment"
+        return
     endif
     let l:pos = getcurpos()[1:]
 
@@ -517,9 +518,11 @@ endfunc
 function! s:fzf(callback)
     if (!exists('b:seperator_char'))
         throw "Not a CsvHack buffer!"
+        return
     endif
     if (!exists('*fzf#run'))
         throw "Requires fzf to be installed"
+        return
     endif
     let s:saved_view = winsaveview()
     return fzf#run(fzf#wrap('columns', {
