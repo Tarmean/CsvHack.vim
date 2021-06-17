@@ -100,10 +100,10 @@ function! CsvHack#SetupScrolllock(mode, col)
         let l:saved_view = s:get_scrolllock_view("hor")
         setlocal scrollbind scrollopt=hor
         call s:timestep()
-        let a:line1 = getline(1)
+        let l:line1 = getline(1)
         above sp +enew
         call s:timestep()
-        call setline(1, a:line1)
+        call setline(1, l:line1)
         set nomodified
         call s:timestep()
         resize 1
@@ -143,19 +143,19 @@ function! CsvHack#SetupScrolllock(mode, col)
         endif
         setlocal scrollopt=ver scrollbind
         let l:i = 0
-        let a:lines = getline(1, '$')
-        while (l:i < len(a:lines))
+        let l:lines = getline(1, '$')
+        while (l:i < len(l:lines))
             if (l:r == -1) 
-                let a:lines[i] = strpart(a:lines[i], l:l)
+                let l:lines[i] = strpart(l:lines[i], l:l)
             else
-                let a:lines[i] = strpart(a:lines[i], l:l, l:r - l:l)
+                let l:lines[i] = strpart(l:lines[i], l:l, l:r - l:l)
             endif
             let l:i += 1
         endwhile
         call s:timestep()
         leftabove vsplit +enew
         call s:timestep()
-        call setline(1, a:lines)
+        call setline(1, l:lines)
         call s:timestep()
         set nomodified
         set bufhidden=wipe nowrap
