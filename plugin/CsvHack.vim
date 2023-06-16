@@ -86,7 +86,7 @@ function! CsvHack#HasScrolllockWin()
     return v:false
 endfunc
 
-function! CsvHack#SetupScrolllock(mode, col) 
+function! CsvHack#SetupScrolllock(mode, col)
     call s:timestep()
     call s:decho( " Setup Scrollock, mode: " . a:mode)
     call s:timestep()
@@ -145,7 +145,7 @@ function! CsvHack#SetupScrolllock(mode, col)
         let l:i = 0
         let l:lines = getline(1, '$')
         while (l:i < len(l:lines))
-            if (l:r == -1) 
+            if (l:r == -1)
                 let l:lines[i] = strpart(l:lines[i], l:l)
             else
                 let l:lines[i] = strpart(l:lines[i], l:l, l:r - l:l)
@@ -380,15 +380,15 @@ if exists("s:working")
 endif
 function! CsvHack#UpdateCursorMoved()
     let l:vline = line(".")
-    let l:vcol = virtcol(".") 
+    let l:vcol = virtcol(".")
     let l:jumplist = getjumplist()
-    let l:a = !exists('w:csvhack_line') 
-    let l:b = !exists('w:csvhack_col') 
-    let l:c = !exists('w:csvhack_jumplist') 
+    let l:a = !exists('w:csvhack_line')
+    let l:b = !exists('w:csvhack_col')
+    let l:c = !exists('w:csvhack_jumplist')
     if (l:a|| l:b||l:c || w:csvhack_jumplist != l:jumplist)
         let w:csvhack_line = l:vline
         let w:csvhack_col = l:vcol
-        let w:csvhack_jumplist = l:jumplist 
+        let w:csvhack_jumplist = l:jumplist
         return
     endif
 
@@ -429,7 +429,7 @@ function! s:findNextLine(line, col, step)
     return l:cur
 endfunction
 function! s:regex_escape(char)
-    if (a:char == "\r") 
+    if (a:char == "\r")
         return "\\M\n"
     end
     return '\M' . a:char
